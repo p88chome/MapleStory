@@ -156,7 +156,8 @@ class App:
         self._slider(t_potion, "potion.mp.threshold", "MP 門檻", 0.1, 0.9)
 
         # 偵測
-        self._slider(t_detect, "monster.match_threshold", "怪物比對門檻", 0.5, 0.95)
+        self._slider(t_detect, "monster.match_threshold", "怪物比對門檻（截圖）", 0.5, 0.95)
+        self._slider(t_detect, "monster.masked_threshold", "怪物比對門檻（去背圖）", 0.7, 0.99)
         self._slider(t_detect, "monster.downscale", "縮圖倍率（重載生效）", 0.3, 1.0)
         self._entry(t_detect, "monster.detect_box.w", "偵測框寬")
         self._entry(t_detect, "monster.detect_box.h", "偵測框高")

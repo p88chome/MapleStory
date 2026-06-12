@@ -40,6 +40,7 @@ class Bot:
             cfg["monster"]["match_threshold"],
             cfg["monster"]["match_flipped"],
             cfg["monster"].get("downscale", 1.0),
+            cfg["monster"].get("masked_threshold", 0.90),
         )
         self.route = Route(
             route_path,
@@ -54,6 +55,7 @@ class Bot:
         其餘參數（攻擊範圍、按鍵、藥水門檻...）每幀都直接讀 cfg，改了立即生效。
         """
         self.detector.threshold = self.cfg["monster"]["match_threshold"]
+        self.detector.masked_threshold = self.cfg["monster"].get("masked_threshold", 0.90)
         self.attack_cd.seconds = self.cfg["attack"]["cooldown"]
         self.potion_cd.seconds = self.cfg["potion"]["cooldown"]
 
