@@ -1,0 +1,2 @@
+# MapleStory
+auto
