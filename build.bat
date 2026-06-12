@@ -9,7 +9,7 @@ pip install pyinstaller || goto :error
 
 echo.
 echo [1/3] 打包控制面板 MapleBot.exe ...
-pyinstaller --noconfirm --onefile --windowed --name MapleBot launcher.py || goto :error
+pyinstaller --noconfirm --onefile --windowed --collect-all customtkinter --name MapleBot launcher.py || goto :error
 
 echo.
 echo [2/3] 打包校準工具 MapleBot-Calibrate.exe ...
