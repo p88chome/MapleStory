@@ -7,16 +7,13 @@
 熱鍵（預設）：F8 = 暫停/繼續、F12 = 結束程式
 """
 import argparse
-import threading
 import time
-from pathlib import Path
 
 import cv2
 import yaml
 
 from .controller import Bot
-
-ROOT = Path(__file__).resolve().parent.parent
+from .paths import ROOT
 
 
 class HotkeyState:
@@ -79,7 +76,7 @@ def main():
                 bot.keys.release_all()
                 time.sleep(1.0)
                 continue
-            if rt["debug_window"]:
+            if dbg is not None:
                 cv2.imshow("MapleBot Debug (q=quit)", dbg)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break

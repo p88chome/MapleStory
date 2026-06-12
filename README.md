@@ -15,7 +15,8 @@
 │ 2. 看 HP/MP 條 → 低於門檻按藥水鍵                  │
 │ 3. 在小地圖找玩家黃點 → 知道自己在地圖哪裡          │
 │ 4. 在角色附近做怪物模板比對 (OpenCV)               │
-│ 5. 範圍內有怪 → 放範圍技；沒怪 → 照路線圖巡邏       │
+│ 5. 範圍內有怪 → 轉身面向最近的怪出招；              │
+│    沒怪 → 照路線圖巡邏                             │
 │    (路線圖 = 你在小地圖截圖上用顏色描的線)          │
 └──────────────────────────────────────────────────┘
 ```
@@ -96,10 +97,33 @@ python -m tools.calibrate
 
 ### 第 4 步：設定按鍵
 
-`config/config.yaml` 的 `attack.key`（範圍技）、`potion.*.key`（藥水）、
+`config/config.yaml` 的 `attack.key`（攻擊技能）、`potion.*.key`（藥水）、
 `keys.jump` 改成你遊戲內的按鍵設定。
 
+技能類型用 `attack.directional` 控制：
+* `true`（預設）= 方向性技能，出招前會自動轉身面向最近的怪
+* `false` = 以自己為中心的 AOE，原地放招
+
 ## 執行
+
+### 控制面板（建議）
+
+```bash
+python -m src.gui
+```
+
+開一個置頂的小視窗，可以：
+
+* **開始 / 暫停 / 停止**（熱鍵 F8 / F12 同時有效）
+* 分頁調參（戰鬥 / 藥水 / 偵測 / 系統），按「**套用變更**」立即生效不用重啟
+* 換怪物資料夾 / 路線圖 / 縮圖倍率後按「**重載素材**」熱重載
+* 「**儲存設定**」寫回 `config.yaml`，下次啟動沿用
+* 狀態列即時顯示目前動作（attack/patrol/...）和每圈耗時
+
+> 調參流程：開著 Debug 視窗 → 邊看偵測框邊在面板改門檻 → 套用 →
+> 滿意後儲存 → 關掉 Debug 視窗進效能模式長時間掛機。
+
+### 純命令列（最省資源）
 
 ```bash
 python -m src.main
@@ -119,6 +143,37 @@ python -m src.main
 | 找不到玩家點 | 重新取色 `player_color_bgr`，或加大 tolerance |
 | 走到路線外卡住 | 路線線條畫粗一點，或加大 `route.search_radius` |
 | 血條偵測亂喝水 | 重新框 `bar_region`（只框會縮短的填充部分）|
+| 轉身轉不過去 / 出招前會走動 | `attack.turn_delay` 調大 / 調小（0.06~0.12）|
+| 技能放了但打不到怪 | `attack.range.x` 改成符合技能實際射程 |
+
+## 效能（弱電腦掛一整天）
+
+> 常見問題：「用 YOLO 會不會比較快？」—— **不會，反而更慢。**
+> YOLO 這類神經網路要有 NVIDIA GPU 才快，純 CPU 上比 template matching
+> 慢一個數量級。YOLO 的優勢是準確度（怪物變形/重疊也認得），
+> 如果之後誤判嚴重再考慮，效能問題交給下面這些優化。
+
+內建的效能優化：
+
+1. **縮圖比對** `monster.downscale: 0.5` — 比對計算量降到約 1/4（預設已開）
+2. **效能模式** `runtime.debug_window: false` — 不抓整張畫面，
+   只抓「偵測框 + 小地圖 + 血條」三個小區域（長時間掛機必開）
+3. **視窗位置快取** — 自動，每 2 秒才重新找一次遊戲視窗
+4. **血魔條降頻檢查** `runtime.potion_check_every: 5` — 每 5 個迴圈看一次
+
+弱電腦建議設定：
+
+```yaml
+monster:
+  downscale: 0.5
+  detect_box: { w: 500, h: 300 }   # 偵測框縮小，比對面積更小
+runtime:
+  fps: 7                            # 打怪節奏沒那麼快，7fps 很夠用
+  debug_window: false               # 調試完就關
+```
+
+再加上：怪物模板每種怪留 2~3 張就好（每多一張模板就多一次全區比對，
+`match_flipped: true` 還會再翻倍）、遊戲本身解析度調低一級也有幫助。
 
 ## 專案結構
 
@@ -140,6 +195,38 @@ assets/
   monsters/<map>/    怪物模板 PNG
   routes/            路線圖 PNG
 ```
+
+## 打包成 exe（給不裝 Python 的使用者）
+
+兩種方式擇一：
+
+**方式 A：GitHub 雲端打包（推薦，本機什麼都不用裝）**
+
+1. GitHub repo 頁面 → **Actions** → **Build Windows EXE** → **Run workflow**
+2. 等 5~10 分鐘跑完，進該次 run 頁面下載 `MapleBot-windows` 壓縮檔
+
+**方式 B：本機打包**（要先 `pip install -r requirements.txt`）
+
+```bash
+build.bat
+```
+
+兩種方式產出的內容一樣，整包發給使用者即可：
+
+```
+dist/
+  MapleBot.exe            ← 控制面板，雙擊就能用（日常使用）
+  MapleBot-Calibrate.exe  ← 校準/截素材工具
+  config/config.yaml      ← 在 exe「旁邊」，使用者可直接編輯
+  assets/                 ← 怪物模板/路線圖，可直接替換不用重新打包
+```
+
+設計重點：config 和 assets **刻意不打包進 exe 內**，
+換素材、改設定都不需要重新打包——GUI 的「儲存設定」也是寫到 exe 旁的
+`config/config.yaml`。
+
+> 注意：PyInstaller 打包的 onefile exe 偶爾會被防毒軟體誤判，
+> 是已知的誤報問題；自己打包的話加入白名單即可。
 
 ## Roadmap（之後可加）
 

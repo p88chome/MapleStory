@@ -1,0 +1,43 @@
+# 在 GitHub 雲端自動打包 Windows exe（本機不用裝 PyInstaller）
+#
+# 觸發方式：
+#   1. 手動：GitHub repo 頁面 → Actions → Build Windows EXE → Run workflow
+#   2. 推 tag：git tag v0.1 && git push origin v0.1
+#
+# 打包完到 Actions 的 run 頁面下載 MapleBot-windows 壓縮檔
+name: Build Windows EXE
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pyinstaller
+
+      - name: Build MapleBot.exe (GUI)
+        run: pyinstaller --noconfirm --onefile --windowed --name MapleBot launcher.py
+
+      - name: Build MapleBot-Calibrate.exe
+        run: pyinstaller --noconfirm --onefile --console --name MapleBot-Calibrate launcher_calibrate.py
+
+      - name: Bundle config and assets
+        shell: cmd
+        run: |
+          xcopy /E /I /Y config dist\config
+          xcopy /E /I /Y assets dist\assets
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MapleBot-windows
+          path: dist/

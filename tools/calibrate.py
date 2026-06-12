@@ -22,8 +22,11 @@ from pathlib import Path
 import cv2
 import yaml
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
+if getattr(sys, "frozen", False):  # PyInstaller 打包後：以 exe 所在資料夾為根目錄
+    ROOT = Path(sys.executable).resolve().parent
+else:
+    ROOT = Path(__file__).resolve().parent.parent
+    sys.path.insert(0, str(ROOT))
 
 from src.capture import WindowCapture  # noqa: E402
 
