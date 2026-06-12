@@ -8,6 +8,7 @@
 - 門檻類參數用滑桿即時拖、開關類用 switch
 - 「套用變更」立即生效；「重載素材」熱替換模板/路線；「儲存」寫回 config.yaml
 """
+import queue
 import threading
 import time
 import tkinter as tk
@@ -17,6 +18,7 @@ import customtkinter as ctk
 import cv2
 import yaml
 
+from tools import mob_downloader as mobdl
 from .controller import Bot
 from .main import HotkeyState
 from .paths import ROOT
@@ -80,11 +82,13 @@ class App:
         self.tick_ms = 0.0
         self.error_msg = ""  # 背景執行緒的錯誤，由 UI 輪詢顯示（執行緒安全）
         self.fields: list[Field] = []
+        self.dl_queue: queue.Queue = queue.Queue()  # 下載執行緒 → UI 的訊息
+        self.dl_mobs: list[dict] = []  # 目前列表顯示的搜尋結果
 
         self.root = ctk.CTk()
         self.root.title("MapleBot")
-        self.root.geometry("440x600")
-        self.root.minsize(400, 520)
+        self.root.geometry("440x640")
+        self.root.minsize(400, 560)
         self.root.attributes("-topmost", True)
         self.font = ctk.CTkFont(family="Microsoft JhengHei UI", size=13)
         self.font_title = ctk.CTkFont(family="Microsoft JhengHei UI",
@@ -135,6 +139,7 @@ class App:
         t_fight = tabs.add("戰鬥")
         t_potion = tabs.add("藥水")
         t_detect = tabs.add("偵測")
+        t_dl = tabs.add("素材")
         t_sys = tabs.add("系統")
         for t in (t_fight, t_potion, t_detect, t_sys):
             t.grid_columnconfigure(1, weight=1)
@@ -161,15 +166,19 @@ class App:
         self._slider(t_detect, "monster.downscale", "縮圖倍率（重載生效）", 0.3, 1.0)
         self._entry(t_detect, "monster.detect_box.w", "偵測框寬")
         self._entry(t_detect, "monster.detect_box.h", "偵測框高")
-        self._combo(t_detect, "monster.set", "怪物模板資料夾",
-                    [p.name for p in (ROOT / "assets" / "monsters").iterdir()
-                     if p.is_dir()])
+        self.mobset_combo = self._combo(
+            t_detect, "monster.set", "怪物模板資料夾",
+            [p.name for p in (ROOT / "assets" / "monsters").iterdir()
+             if p.is_dir()])
         self._combo(t_detect, "route.map", "路線圖",
                     [p.name for p in (ROOT / "assets" / "routes").glob("*.png")])
         ctk.CTkButton(t_detect, text="↻ 重載素材（換地圖 / 縮圖倍率後按）",
                       font=self.font, fg_color="transparent", border_width=1,
                       command=self._reload_assets).grid(
             column=0, columnspan=3, pady=(12, 0), sticky="we")
+
+        # 素材下載
+        self._build_download_tab(t_dl)
 
         # 系統
         self._entry(t_sys, "window.title_keyword", "遊戲視窗標題關鍵字")
@@ -233,9 +242,139 @@ class App:
         self.fields.append(f)
         row = self._next_row(parent)
         self._label(parent, label, row)
-        ctk.CTkComboBox(parent, variable=f.var, values=values or ["（無）"],
-                        width=170, font=self.font).grid(
-            row=row, column=1, columnspan=2, sticky="e", pady=5)
+        cb = ctk.CTkComboBox(parent, variable=f.var, values=values or ["（無）"],
+                             width=170, font=self.font)
+        cb.grid(row=row, column=1, columnspan=2, sticky="e", pady=5)
+        return cb
+
+    # ---------- 素材下載分頁 ----------
+    def _build_download_tab(self, tab):
+        tab.grid_columnconfigure(1, weight=1)
+        tab.grid_rowconfigure(2, weight=1)
+
+        # 地區/版本 + 搜尋列
+        top = ctk.CTkFrame(tab, fg_color="transparent")
+        top.grid(row=0, column=0, columnspan=3, sticky="we")
+        self.dl_region = tk.StringVar(value="GMS")
+        self.dl_version = tk.StringVar(value="65")
+        ctk.CTkComboBox(top, variable=self.dl_region, width=80, font=self.font,
+                        values=["GMS", "TMS", "KMS", "JMS", "CMS", "SEA"]
+                        ).pack(side="left")
+        ctk.CTkEntry(top, textvariable=self.dl_version, width=50,
+                     font=self.font, justify="center").pack(side="left", padx=4)
+        self.dl_search = tk.StringVar()
+        ent = ctk.CTkEntry(top, textvariable=self.dl_search, font=self.font,
+                           placeholder_text="怪物名稱…")
+        ent.pack(side="left", fill="x", expand=True, padx=4)
+        ent.bind("<Return>", lambda e: self._mob_search())
+        self.dl_search_btn = ctk.CTkButton(top, text="🔍 搜尋", width=70,
+                                           font=self.font,
+                                           command=self._mob_search)
+        self.dl_search_btn.pack(side="left")
+
+        ctk.CTkLabel(tab, text="搜尋結果（可多選，Ctrl/Shift+點擊）",
+                     font=self.font, anchor="w").grid(
+            row=1, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        self.dl_list = tk.Listbox(
+            tab, selectmode="extended", height=7, activestyle="none",
+            bg="#2b2b2b", fg="#e8e8e8", selectbackground=C_RUN,
+            borderwidth=0, highlightthickness=0, font=("Microsoft JhengHei UI", 11))
+        self.dl_list.grid(row=2, column=0, columnspan=3, sticky="nsew", pady=4)
+
+        # 目標資料夾 + 下載
+        bottom = ctk.CTkFrame(tab, fg_color="transparent")
+        bottom.grid(row=3, column=0, columnspan=3, sticky="we", pady=(4, 0))
+        ctk.CTkLabel(bottom, text="存到資料夾", font=self.font).pack(side="left")
+        self.dl_out = tk.StringVar(value=str(self.cfg["monster"]["set"]))
+        ctk.CTkEntry(bottom, textvariable=self.dl_out, width=130,
+                     font=self.font).pack(side="left", padx=6)
+        self.dl_btn = ctk.CTkButton(bottom, text="⬇ 下載選取的怪", font=self.font,
+                                    command=self._mob_download)
+        self.dl_btn.pack(side="left", fill="x", expand=True)
+
+        self.dl_log = ctk.CTkTextbox(tab, height=90, font=self.font,
+                                     state="disabled", wrap="word")
+        self.dl_log.grid(row=4, column=0, columnspan=3, sticky="we", pady=(6, 0))
+        self._log_dl("怪物名稱可上 maplestory.wiki/GMS/65/mob 查（英文）；"
+                     "懷舊怪用 GMS 65 圖庫即可。")
+
+    def _log_dl(self, msg: str):
+        """寫入下載日誌（只能在 UI 執行緒呼叫）。"""
+        self.dl_log.configure(state="normal")
+        self.dl_log.insert("end", msg + "\n")
+        self.dl_log.see("end")
+        self.dl_log.configure(state="disabled")
+
+    def _set_dl_busy(self, busy: bool):
+        state = "disabled" if busy else "normal"
+        self.dl_search_btn.configure(state=state)
+        self.dl_btn.configure(state=state)
+
+    def _mob_search(self):
+        kw = self.dl_search.get().strip()
+        if not kw:
+            return
+        region, ver = self.dl_region.get().strip(), self.dl_version.get().strip()
+        self._set_dl_busy(True)
+
+        def work():
+            try:
+                mobs = mobdl.get_mob_list(region, ver, log=self.dl_queue.put)
+                hits = mobdl.search(mobs, kw)
+                self.dl_queue.put(("results", hits[:60]))
+            except Exception as e:
+                self.dl_queue.put(f"搜尋失敗：{e}")
+                self.dl_queue.put(("done", None))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _mob_download(self):
+        sel = self.dl_list.curselection()
+        if not sel:
+            self._log_dl("請先在列表選取要下載的怪物")
+            return
+        chosen = [self.dl_mobs[i] for i in sel]
+        region, ver = self.dl_region.get().strip(), self.dl_version.get().strip()
+        out = ROOT / "assets" / "monsters" / (self.dl_out.get().strip() or "downloaded")
+        self._set_dl_busy(True)
+
+        def work():
+            try:
+                for m in chosen:
+                    self.dl_queue.put(f"下載 {m['name']} (id={m['id']}) ...")
+                    mobdl.download_mob(region, ver, m["id"], str(m["name"]), out,
+                                       mobdl.DEFAULT_ACTIONS, 4,
+                                       log=self.dl_queue.put)
+                self.dl_queue.put(
+                    f"全部完成 → {out}\n"
+                    "到「偵測」分頁選這個資料夾並按「重載素材」即可生效")
+            except Exception as e:
+                self.dl_queue.put(f"下載失敗：{e}")
+            finally:
+                self.dl_queue.put(("done", None))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _drain_dl_queue(self):
+        """把下載執行緒的訊息搬進 UI（在 _poll_status 內呼叫）。"""
+        try:
+            while True:
+                item = self.dl_queue.get_nowait()
+                if isinstance(item, tuple) and item[0] == "results":
+                    self.dl_mobs = item[1]
+                    self.dl_list.delete(0, "end")
+                    for m in self.dl_mobs:
+                        self.dl_list.insert("end", f"  {m['name']}   (id={m['id']})")
+                    self._log_dl(f"找到 {len(self.dl_mobs)} 筆")
+                    self._set_dl_busy(False)
+                elif isinstance(item, tuple) and item[0] == "done":
+                    self._set_dl_busy(False)
+                    # 重新整理「怪物模板資料夾」下拉選單
+                    self.mobset_combo.configure(values=[
+                        p.name for p in (ROOT / "assets" / "monsters").iterdir()
+                        if p.is_dir()])
+                else:
+                    self._log_dl(str(item))
+        except queue.Empty:
+            pass
 
     def _cfg_get(self, path):
         cur = self.cfg
@@ -335,6 +474,7 @@ class App:
 
     # ================= 狀態列輪詢 =================
     def _poll_status(self):
+        self._drain_dl_queue()
         running = self.worker and self.worker.is_alive()
         if running and self.error_msg:
             self.dot.configure(text_color=C_STOP)

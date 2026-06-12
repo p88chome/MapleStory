@@ -45,12 +45,12 @@ def _get(url: str) -> bytes:
         return r.read()
 
 
-def get_mob_list(region: str, version: str) -> list[dict]:
+def get_mob_list(region: str, version: str, log=print) -> list[dict]:
     """抓怪物清單（會快取到 assets/_captured/，第二次起秒開）。"""
     cache = ROOT / "assets" / "_captured" / f"moblist_{region}_{version}.json"
     if cache.is_file():
         return json.loads(cache.read_text(encoding="utf-8"))
-    print(f"下載怪物清單 {region}/{version}（第一次會比較久）...")
+    log(f"下載怪物清單 {region}/{version}（第一次會比較久）...")
     data = _get(f"{BASE}/{region}/{version}/mob")
     cache.parent.mkdir(parents=True, exist_ok=True)
     cache.write_bytes(data)
@@ -63,7 +63,8 @@ def search(mobs: list[dict], keyword: str) -> list[dict]:
 
 
 def download_mob(region: str, version: str, mob_id: int, mob_name: str,
-                 out_dir: Path, actions: list[str], max_frames: int):
+                 out_dir: Path, actions: list[str], max_frames: int,
+                 log=print) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     safe = re.sub(r"[^\w一-鿿-]", "_", mob_name) or str(mob_id)
     total = 0
@@ -78,13 +79,14 @@ def download_mob(region: str, version: str, mob_id: int, mob_name: str,
                 break
             out = out_dir / f"{safe}_{action}{frame}.png"
             out.write_bytes(png)
-            print(f"  ✓ {out.relative_to(ROOT) if out.is_relative_to(ROOT) else out}")
+            log(f"  ✓ {out.relative_to(ROOT) if out.is_relative_to(ROOT) else out}")
             total += 1
     if total == 0:
-        print(f"  ✗ {mob_name} ({mob_id}) 一張都沒抓到，"
-              f"請確認 id 正確、或試試其他 --actions（如 stand,move,hit1,attack1）")
+        log(f"  ✗ {mob_name} ({mob_id}) 一張都沒抓到，"
+            f"請確認 id 正確、或試試其他動作（如 stand,move,hit1,attack1）")
     else:
-        print(f"完成：{mob_name} 共 {total} 張（建議刪到剩 2~3 張代表性的省效能）")
+        log(f"完成：{mob_name} 共 {total} 張（建議刪到剩 2~3 張代表性的省效能）")
+    return total
 
 
 def main():
