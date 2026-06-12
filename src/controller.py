@@ -68,9 +68,11 @@ class Bot:
         # 5. 決策：有怪 → 攻擊；沒怪 → 走路線
         if target is not None:
             self.status = "attack"
-            # 範圍技不用面向，原地放招（放開移動鍵讓技能讀條穩定）
             self.keys.release_all()
             if self.attack_cd.ready():
+                if cfg["attack"].get("directional", True):
+                    # 方向性技能：先朝怪物方向轉身再出招
+                    self._face_target(frame, target, roi_offset)
                 self.keys.tap(cfg["attack"]["key"])
                 self.attack_cd.trigger()
         elif pos is not None:
@@ -107,16 +109,31 @@ class Bot:
         return frame[y0:y0 + bh, x0:x0 + bw], (x0, y0)
 
     def _monster_in_attack_range(self, frame, monsters, roi_offset):
+        """回傳攻擊範圍內「水平距離最近」的怪（方向性技能優先打最近的）。"""
         h, w = frame.shape[:2]
         cx, cy = w // 2, h // 2
         rx = self.cfg["attack"]["range"]["x"]
         ry = self.cfg["attack"]["range"]["y"]
+        best, best_dx = None, None
         for m in monsters:
             mx = roi_offset[0] + m["x"] + m["w"] // 2
             my = roi_offset[1] + m["y"] + m["h"] // 2
-            if abs(mx - cx) <= rx and abs(my - cy) <= ry:
-                return m
-        return None
+            dx = abs(mx - cx)
+            if dx <= rx and abs(my - cy) <= ry:
+                if best is None or dx < best_dx:
+                    best, best_dx = m, dx
+        return best
+
+    def _face_target(self, frame, target, roi_offset):
+        """輕點方向鍵讓角色面向怪物（按太久會走動，所以只點一下）。"""
+        w = frame.shape[1]
+        mx = roi_offset[0] + target["x"] + target["w"] // 2
+        k = self.cfg["keys"]
+        key = k["left"] if mx < w // 2 else k["right"]
+        self.keys.hold(key)
+        time.sleep(self.cfg["attack"].get("turn_delay", 0.08))
+        self.keys.release(key)
+        self.status = f"attack:{'left' if mx < w // 2 else 'right'}"
 
     # ---------- 移動 ----------
     def _do_action(self, action: str | None):
