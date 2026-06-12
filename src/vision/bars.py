@@ -3,16 +3,15 @@ import cv2
 import numpy as np
 
 
-def bar_ratio(frame_bgr: np.ndarray, region: dict, fill_color_bgr, tolerance: int) -> float:
-    """回傳 0~1 的填充比例。
+def bar_ratio(roi: np.ndarray, fill_color_bgr, tolerance: int) -> float:
+    """回傳 0~1 的填充比例（roi = 已裁好的血條區域影像）。
 
-    做法：取血條區域的中間一列，從左往右找最後一個符合填充色的像素。
+    做法：從左往右找最後一個符合填充色的像素位置。
     比單純數像素更能容忍血條上的文字/光影。
     """
-    x, y, w, h = region["x"], region["y"], region["w"], region["h"]
-    roi = frame_bgr[y:y + h, x:x + w]
-    if roi.size == 0:
+    if roi is None or roi.size == 0:
         return 1.0
+    w = roi.shape[1]
     color = np.array(fill_color_bgr, dtype=np.int16)
     lower = np.clip(color - tolerance, 0, 255).astype(np.uint8)
     upper = np.clip(color + tolerance, 0, 255).astype(np.uint8)

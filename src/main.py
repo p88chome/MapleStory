@@ -79,7 +79,7 @@ def main():
                 bot.keys.release_all()
                 time.sleep(1.0)
                 continue
-            if rt["debug_window"]:
+            if dbg is not None:
                 cv2.imshow("MapleBot Debug (q=quit)", dbg)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break

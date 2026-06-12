@@ -7,9 +7,13 @@ import numpy as np
 
 
 class MonsterDetector:
-    def __init__(self, template_dir: str, threshold: float, match_flipped: bool):
+    def __init__(self, template_dir: str, threshold: float, match_flipped: bool,
+                 downscale: float = 1.0):
+        """downscale: 比對前把畫面和模板縮小的倍率 (0.5 = 計算量約 1/4)。"""
         self.threshold = threshold
-        self.templates: list[tuple[str, np.ndarray]] = []
+        self.scale = downscale
+        # (名稱, 縮放後模板, 原始寬, 原始高)
+        self.templates: list[tuple[str, np.ndarray, int, int]] = []
         path = Path(template_dir)
         if not path.is_dir():
             raise FileNotFoundError(f"找不到怪物模板資料夾: {template_dir}")
@@ -17,17 +21,25 @@ class MonsterDetector:
             img = cv2.imread(str(f), cv2.IMREAD_GRAYSCALE)
             if img is None:
                 continue
-            self.templates.append((f.stem, img))
+            oh, ow = img.shape
+            small = self._resize(img)
+            self.templates.append((f.stem, small, ow, oh))
             if match_flipped:
-                self.templates.append((f.stem + "_flip", cv2.flip(img, 1)))
+                self.templates.append((f.stem + "_flip", cv2.flip(small, 1), ow, oh))
         if not self.templates:
             raise FileNotFoundError(f"{template_dir} 內沒有任何 png 模板")
 
+    def _resize(self, gray: np.ndarray) -> np.ndarray:
+        if self.scale == 1.0:
+            return gray
+        return cv2.resize(gray, None, fx=self.scale, fy=self.scale,
+                          interpolation=cv2.INTER_AREA)
+
     def detect(self, roi_bgr: np.ndarray) -> list[dict]:
-        """在 ROI 內找怪。回傳 [{x, y, w, h, score, name}, ...]（ROI 座標）。"""
-        gray = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2GRAY)
+        """在 ROI 內找怪。回傳 [{x, y, w, h, score, name}, ...]（ROI 原始座標）。"""
+        gray = self._resize(cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2GRAY))
         hits = []
-        for name, tmpl in self.templates:
+        for name, tmpl, ow, oh in self.templates:
             th, tw = tmpl.shape
             if gray.shape[0] < th or gray.shape[1] < tw:
                 continue
@@ -35,7 +47,8 @@ class MonsterDetector:
             ys, xs = np.nonzero(res >= self.threshold)
             for x, y in zip(xs, ys):
                 hits.append({
-                    "x": int(x), "y": int(y), "w": tw, "h": th,
+                    "x": int(x / self.scale), "y": int(y / self.scale),
+                    "w": ow, "h": oh,
                     "score": float(res[y, x]), "name": name,
                 })
         return _nms(hits)

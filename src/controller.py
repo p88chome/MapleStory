@@ -22,6 +22,7 @@ class Bot:
             monster_dir,
             cfg["monster"]["match_threshold"],
             cfg["monster"]["match_flipped"],
+            cfg["monster"].get("downscale", 1.0),
         )
         self.route = Route(
             route_path,
@@ -39,15 +40,24 @@ class Bot:
 
         self._last_pos = None
         self._last_move_time = time.time()
+        self._tick_count = 0
         self.status = "init"
 
     # ---------- 每一幀的主流程 ----------
-    def tick(self) -> np.ndarray:
-        cfg = self.cfg
-        frame = self.capture.grab()
+    def tick(self) -> np.ndarray | None:
+        """執行一輪決策。debug 模式回傳視覺化影像，否則回傳 None。
 
-        # 1. 喝水（最優先，活著最重要）
-        self._check_potions(frame)
+        效能模式（debug_window: false）：不抓整張畫面，
+        只分別抓「偵測框 / 小地圖 / 血條」幾個小區域，CPU 負擔低很多。
+        """
+        cfg = self.cfg
+        self._tick_count += 1
+        debug = cfg["runtime"]["debug_window"]
+        frame = self.capture.grab() if debug else None
+
+        # 1. 喝水（不需要每幀檢查，血量不會一瞬間掉光）
+        if self._tick_count % cfg["runtime"].get("potion_check_every", 5) == 0:
+            self._check_potions(frame)
 
         # 2. Buff
         for key, cd in self.buff_cds:
@@ -56,14 +66,15 @@ class Bot:
                 cd.trigger()
 
         # 3. 玩家定位（小地圖）
-        mm = crop_region(frame, cfg["minimap"]["region"])
+        mm = (crop_region(frame, cfg["minimap"]["region"]) if frame is not None
+              else self.capture.grab(cfg["minimap"]["region"]))
         pos = find_player(mm, cfg["minimap"]["player_color_bgr"],
                           cfg["minimap"]["player_color_tolerance"])
 
         # 4. 怪物偵測（以畫面中心 = 角色 為中心的偵測框）
         roi, roi_offset = self._detect_roi(frame)
         monsters = self.detector.detect(roi)
-        target = self._monster_in_attack_range(frame, monsters, roi_offset)
+        target = self._monster_in_attack_range(monsters, roi_offset)
 
         # 5. 決策：有怪 → 攻擊；沒怪 → 走路線
         if target is not None:
@@ -72,7 +83,7 @@ class Bot:
             if self.attack_cd.ready():
                 if cfg["attack"].get("directional", True):
                     # 方向性技能：先朝怪物方向轉身再出招
-                    self._face_target(frame, target, roi_offset)
+                    self._face_target(target, roi_offset)
                 self.keys.tap(cfg["attack"]["key"])
                 self.attack_cd.trigger()
         elif pos is not None:
@@ -85,6 +96,8 @@ class Bot:
             self.status = "player_not_found"
             self.keys.release_all()
 
+        if frame is None:
+            return None
         return self._draw_debug(frame, mm, pos, monsters, roi_offset, target)
 
     # ---------- 喝水 ----------
@@ -93,25 +106,28 @@ class Bot:
             p = self.cfg["potion"][kind]
             if not p["enabled"] or not self.potion_cd.ready():
                 continue
-            ratio = bar_ratio(frame, p["bar_region"], p["fill_color_bgr"],
-                              p["fill_color_tolerance"])
+            roi = (crop_region(frame, p["bar_region"]) if frame is not None
+                   else self.capture.grab(p["bar_region"]))
+            ratio = bar_ratio(roi, p["fill_color_bgr"], p["fill_color_tolerance"])
             if 0.0 < ratio < p["threshold"]:  # ratio==0 多半是偵測失敗，不亂按
                 self.keys.tap(p["key"])
                 self.potion_cd.trigger()
 
     # ---------- 怪物 ----------
     def _detect_roi(self, frame):
-        h, w = frame.shape[:2]
-        bw = self.cfg["monster"]["detect_box"]["w"]
-        bh = self.cfg["monster"]["detect_box"]["h"]
-        x0 = max(0, w // 2 - bw // 2)
-        y0 = max(0, h // 2 - bh // 2)
-        return frame[y0:y0 + bh, x0:x0 + bw], (x0, y0)
+        cw, ch = self.capture.client_size()
+        bw = min(self.cfg["monster"]["detect_box"]["w"], cw)
+        bh = min(self.cfg["monster"]["detect_box"]["h"], ch)
+        x0 = max(0, cw // 2 - bw // 2)
+        y0 = max(0, ch // 2 - bh // 2)
+        if frame is not None:
+            return frame[y0:y0 + bh, x0:x0 + bw], (x0, y0)
+        return self.capture.grab({"x": x0, "y": y0, "w": bw, "h": bh}), (x0, y0)
 
-    def _monster_in_attack_range(self, frame, monsters, roi_offset):
+    def _monster_in_attack_range(self, monsters, roi_offset):
         """回傳攻擊範圍內「水平距離最近」的怪（方向性技能優先打最近的）。"""
-        h, w = frame.shape[:2]
-        cx, cy = w // 2, h // 2
+        cw, ch = self.capture.client_size()
+        cx, cy = cw // 2, ch // 2
         rx = self.cfg["attack"]["range"]["x"]
         ry = self.cfg["attack"]["range"]["y"]
         best, best_dx = None, None
@@ -124,16 +140,16 @@ class Bot:
                     best, best_dx = m, dx
         return best
 
-    def _face_target(self, frame, target, roi_offset):
+    def _face_target(self, target, roi_offset):
         """輕點方向鍵讓角色面向怪物（按太久會走動，所以只點一下）。"""
-        w = frame.shape[1]
+        cw, _ = self.capture.client_size()
         mx = roi_offset[0] + target["x"] + target["w"] // 2
         k = self.cfg["keys"]
-        key = k["left"] if mx < w // 2 else k["right"]
+        key = k["left"] if mx < cw // 2 else k["right"]
         self.keys.hold(key)
         time.sleep(self.cfg["attack"].get("turn_delay", 0.08))
         self.keys.release(key)
-        self.status = f"attack:{'left' if mx < w // 2 else 'right'}"
+        self.status = f"attack:{'left' if mx < cw // 2 else 'right'}"
 
     # ---------- 移動 ----------
     def _do_action(self, action: str | None):
