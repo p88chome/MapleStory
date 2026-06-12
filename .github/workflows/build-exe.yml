@@ -26,7 +26,7 @@ jobs:
         run: pip install -r requirements.txt pyinstaller
 
       - name: Build MapleBot.exe (GUI)
-        run: pyinstaller --noconfirm --onefile --windowed --name MapleBot launcher.py
+        run: pyinstaller --noconfirm --onefile --windowed --collect-all customtkinter --name MapleBot launcher.py
 
       - name: Build MapleBot-Calibrate.exe
         run: pyinstaller --noconfirm --onefile --console --name MapleBot-Calibrate launcher_calibrate.py

@@ -6,3 +6,4 @@ pygetwindow>=0.0.9  # 找遊戲視窗位置
 pydirectinput>=1.0.4  # DirectInput 按鍵模擬（遊戲吃得到，一般 pyautogui 常常無效）
 pynput>=1.7         # 全域熱鍵（暫停/停止）
 PyYAML>=6.0
+customtkinter>=5.2  # 現代化深色主題 GUI
