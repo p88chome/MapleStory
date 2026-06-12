@@ -19,7 +19,8 @@ import cv2
 import yaml
 
 from .controller import Bot
-from .main import HotkeyState, ROOT
+from .main import HotkeyState
+from .paths import ROOT
 
 CONFIG_PATH = ROOT / "config" / "config.yaml"
 

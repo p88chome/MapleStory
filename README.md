@@ -196,6 +196,38 @@ assets/
   routes/            路線圖 PNG
 ```
 
+## 打包成 exe（給不裝 Python 的使用者）
+
+兩種方式擇一：
+
+**方式 A：GitHub 雲端打包（推薦，本機什麼都不用裝）**
+
+1. GitHub repo 頁面 → **Actions** → **Build Windows EXE** → **Run workflow**
+2. 等 5~10 分鐘跑完，進該次 run 頁面下載 `MapleBot-windows` 壓縮檔
+
+**方式 B：本機打包**（要先 `pip install -r requirements.txt`）
+
+```bash
+build.bat
+```
+
+兩種方式產出的內容一樣，整包發給使用者即可：
+
+```
+dist/
+  MapleBot.exe            ← 控制面板，雙擊就能用（日常使用）
+  MapleBot-Calibrate.exe  ← 校準/截素材工具
+  config/config.yaml      ← 在 exe「旁邊」，使用者可直接編輯
+  assets/                 ← 怪物模板/路線圖，可直接替換不用重新打包
+```
+
+設計重點：config 和 assets **刻意不打包進 exe 內**，
+換素材、改設定都不需要重新打包——GUI 的「儲存設定」也是寫到 exe 旁的
+`config/config.yaml`。
+
+> 注意：PyInstaller 打包的 onefile exe 偶爾會被防毒軟體誤判，
+> 是已知的誤報問題；自己打包的話加入白名單即可。
+
 ## Roadmap（之後可加）
 
 - [ ] 被傳送 / 視窗異常 / 玩家靠近 → 警報音 + 自動停止
