@@ -18,18 +18,7 @@ class Bot:
         self.cfg = cfg
         self.capture = WindowCapture(cfg["window"]["title_keyword"], cfg["window"]["crop"])
         self.keys = KeyController()
-        self.detector = MonsterDetector(
-            monster_dir,
-            cfg["monster"]["match_threshold"],
-            cfg["monster"]["match_flipped"],
-            cfg["monster"].get("downscale", 1.0),
-        )
-        self.route = Route(
-            route_path,
-            cfg["route"]["colors"],
-            cfg["route"]["color_tolerance"],
-            cfg["route"]["search_radius"],
-        )
+        self.reload_assets(monster_dir, route_path)
         self.attack_cd = Cooldown(cfg["attack"]["cooldown"])
         self.potion_cd = Cooldown(cfg["potion"]["cooldown"])
         self.buff_cds = []
@@ -42,6 +31,31 @@ class Bot:
         self._last_move_time = time.time()
         self._tick_count = 0
         self.status = "init"
+
+    def reload_assets(self, monster_dir: str, route_path: str):
+        """重新載入怪物模板與路線圖（GUI 換地圖/調 downscale 時熱重載用）。"""
+        cfg = self.cfg
+        self.detector = MonsterDetector(
+            monster_dir,
+            cfg["monster"]["match_threshold"],
+            cfg["monster"]["match_flipped"],
+            cfg["monster"].get("downscale", 1.0),
+        )
+        self.route = Route(
+            route_path,
+            cfg["route"]["colors"],
+            cfg["route"]["color_tolerance"],
+            cfg["route"]["search_radius"],
+        )
+
+    def apply_tuning(self):
+        """把 cfg 中「存在物件裡的參數」同步進去（GUI 套用變更時呼叫）。
+
+        其餘參數（攻擊範圍、按鍵、藥水門檻...）每幀都直接讀 cfg，改了立即生效。
+        """
+        self.detector.threshold = self.cfg["monster"]["match_threshold"]
+        self.attack_cd.seconds = self.cfg["attack"]["cooldown"]
+        self.potion_cd.seconds = self.cfg["potion"]["cooldown"]
 
     # ---------- 每一幀的主流程 ----------
     def tick(self) -> np.ndarray | None:
