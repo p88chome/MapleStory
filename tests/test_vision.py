@@ -57,6 +57,31 @@ def test_monster_downscale():
     print("  [OK] 怪物偵測（含 0.5 縮圖座標映射）")
 
 
+def test_monster_masked():
+    """去背圖（alpha）模板：只比對怪物本體、忽略透明背景。"""
+    rng = np.random.default_rng(3)
+    # 怪物本體：中間 32x40 的紋理，四周透明
+    body = rng.integers(0, 255, (40, 32, 3), dtype=np.uint8)
+    sprite = np.zeros((60, 56, 4), dtype=np.uint8)
+    sprite[10:50, 12:44, :3] = body
+    sprite[10:50, 12:44, 3] = 255  # 只有本體不透明
+
+    # 場景：雜訊背景 + 只把「本體」貼上去（模擬遊戲裡怪站在複雜背景前）
+    scene = rng.integers(0, 255, (300, 500, 3), dtype=np.uint8)
+    scene[150 + 10:150 + 50, 220 + 12:220 + 44] = body
+
+    with tempfile.TemporaryDirectory() as d:
+        cv2.imwrite(str(Path(d) / "mob.png"), sprite)  # 4 通道 PNG
+        det = MonsterDetector(d, 0.7, match_flipped=False,
+                              downscale=1.0, masked_threshold=0.9)
+        assert det.templates[0][2] is not None, "alpha 模板應產生 mask"
+        hits = det.detect(scene)
+        assert hits, "mask 比對應該要在雜訊背景上抓到去背怪"
+        best = hits[0]
+        assert abs(best["x"] - 220) <= 2 and abs(best["y"] - 150) <= 2, best
+    print("  [OK] 去背圖 mask 比對（雜訊背景）")
+
+
 def test_route():
     img = np.zeros((120, 180, 3), np.uint8)
     img[100, 10:80] = (0, 0, 255)    # 紅 = 往左走
@@ -79,5 +104,6 @@ if __name__ == "__main__":
     test_minimap()
     test_bar_ratio()
     test_monster_downscale()
+    test_monster_masked()
     test_route()
     print("全部測試通過 ✓")

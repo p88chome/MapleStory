@@ -42,7 +42,11 @@ monster:
   # 使用 assets/monsters/<set> 資料夾內所有 png 當模板
   set: "example_map"
   # template matching 信心門檻 (0~1)，太多誤判就調高、抓不到就調低
+  # （適用「遊戲截圖」模板）
   match_threshold: 0.72
+  # 「去背圖」模板（tools/mob_downloader.py 下載的）用的門檻，
+  # mask 比對的分數天生偏高，通常要 0.85~0.95
+  masked_threshold: 0.90
   # 同時比對左右翻轉的模板（怪物會轉身）
   match_flipped: true
   # 效能：比對前先把畫面/模板縮小的倍率，0.5 = 計算量約 1/4

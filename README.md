@@ -67,11 +67,31 @@ python -m tools.calibrate
 
 ### 第 2 步：建立怪物模板
 
+**方法 A：從 maplestory.io 下載（推薦，懷舊怪皆適用）**
+
+楓星/Artale 這類懷舊服的怪 = 舊版楓之谷的怪，
+[maplestory.io](https://maplestory.io) 開放資料庫有全部的圖（Ken 的專案同款來源）：
+
+```bash
+# 搜怪（英文名可上 https://maplestory.wiki/GMS/65/mob 查）
+python -m tools.mob_downloader --search "snail"
+# 下載到你的地圖資料夾（自動抓 站立/移動/被打 的去背 PNG）
+python -m tools.mob_downloader --id 100100 --out assets/monsters/my_map
+```
+
+下載的是**去背圖（含透明 alpha）**，偵測器會自動切換成 mask 比對
+（只比對怪物本體、忽略背景），門檻走 `monster.masked_threshold`（預設 0.90）。
+每種怪留 2~3 張就好。
+
+**方法 B：自己從遊戲截圖（楓星自製怪/方法 A 圖對不上時用）**
+
 1. 在練功地圖開校準工具，怪物出現時按`空白鍵`凍結
 2. 框選**一隻怪**（框緊一點、避開血條和名字）→ 按 `s` 儲存
 3. 同一種怪建議截 2~4 張不同動作（站立、移動、被打）
 4. 把 PNG 移到 `assets/monsters/<你的地圖名>/`，
    並把 `monster.set` 改成 `<你的地圖名>`
+
+兩種方法的 PNG 可以混用，偵測器會依「有沒有 alpha」自動選比對方式。
 
 ### 第 3 步：畫巡邏路線圖
 
